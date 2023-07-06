@@ -1,0 +1,91 @@
+name: Running Exporter on Existing Workspace and Source Control
+
+on:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - 'v*' # this tag type is used for release pipelines
+  schedule:
+    - cron: '30 5 * * 1'
+
+jobs:
+  run-exporter-workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Folders for Terraform Exporter and Repo for exported files
+        run: |
+          mkdir -p ./databricks-terraform-exporter
+          mkdir -p ./exported-db-tf
+          
+      - name: Download Terraform Exporter and Unzip 
+        run: |
+          wget https://github.com/databricks/terraform-provider-databricks/releases/download/v1.16.0/terraform-provider-databricks_1.16.0_linux_amd64.zip
+          unzip terraform-provider-databricks_* -d ./databricks-terraform-exporter
+          
+      - name: Display Directory Tree
+        run: |
+          apt-get update && apt-get install -y tree
+          tree /home/runner/work
+          
+      - name: Checking out Exported Repo
+        uses: actions/checkout@v3
+        with:
+          repository: tonykhbo/exported-db-tf
+          path: ./exported-db-tf
+      
+      - name: Define Branch Name in Github Env Variable
+        run: |
+          echo "BRANCH_NAME=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_ENV
+          
+      - name: Create New Branch
+        working-directory: ./exported-db-tf
+        run: |
+          git checkout -b "${{ env.BRANCH_NAME }}"
+          
+      - name: Removes all files and folders in branch except for .git
+        working-directory: ./exported-db-tf
+        run: |
+          find * ! -name '.git' -exec rm -rf {} + 
+          #or do this
+          #rm -rf *
+      
+      - name: Set executable permission for Terraform Exporter Binary
+        run: chmod +x ./databricks-terraform-exporter/terraform-provider-databricks_v1.16.0
+
+      - name: Run Terraform Exporter
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          ./databricks-terraform-exporter/terraform-provider-databricks_v1.16.0 exporter -skip-interactive \
+            -services=groups,users \
+            -listing=jobs \
+            -directory=./exported-db-tf
+            
+      - name: Display Directory Tree on Exported Folder
+        run: |
+          tree ./exported-db-tf/
+          
+      - name: Git Config
+        working-directory: ./exported-db-tf
+        run: |
+          git config --unset-all http.https://github.com/.extraheader
+          git config --global user.name "${{ vars.NAME }}"
+          git config --global user.email "${{ vars.EMAIL }}"
+          git remote set-url origin https://${{ vars.USERNAME }}:${{ secrets.REPO_PERSONAL_ACCESS_TOKEN }}@github.com/bhavink/targetWS.git
+          
+      - name: Commit TF Exports and Push
+        working-directory: ./exported-db-tf
+        run: |
+          touch ${{ env.BRANCH_NAME }}
+          git add .
+          git commit -m "New Export for ${{ env.BRANCH_NAME }}"
+          git push origin ${{ env.BRANCH_NAME }}
+        
+      - name: Rebase Main to New Branch and Push
+        working-directory: ./exported-db-tf
+        run: |
+          git checkout main
+          git rebase ${{ env.BRANCH_NAME }}
+          git push origin main
