@@ -59,8 +59,8 @@ jobs:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
           ./databricks-terraform-exporter/terraform-provider-databricks_v1.16.0 exporter -skip-interactive \
-            -services=groups,users \
-            -listing=jobs \
+            -services=groups,compute,users,jobs \
+            -listing=groups,compute,users,jobs \
             -directory=./exported-db-tf
             
       - name: Display Directory Tree on Exported Folder
